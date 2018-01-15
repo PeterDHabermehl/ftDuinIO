@@ -90,6 +90,21 @@ class FtcGuiApplication(TouchApplication):
         self.window.titlebar.close.clicked.connect(self.end)
         
         self.setMainWidget()
+        
+        self.menu=self.window.addMenu()
+        self.menu.setStyleSheet("font-size: 24px;")
+                
+        #self.m_cache = self.menu.addAction(QCoreApplication.translate("mmain","Cache"))
+        #self.cache.triggered.connect(self.on_menu_cache) 
+        
+        #self.menu.addSeparator()
+        
+        self.m_bootloader = self.menu.addAction(QCoreApplication.translate("mmain","Flash Bootloader"))
+        self.m_bootloader.triggered.connect(self.on_menu_bootloader)
+        
+        #self.m_about = self.menu.addAction(QCoreApplication.translate("mmain","About"))
+        #self.m_about.triggered.connect(self.on_menu_about)
+        
         self.window.setCentralWidget(self.mainWidget)
         
         self.window.show()
@@ -114,6 +129,29 @@ class FtcGuiApplication(TouchApplication):
             except:
                 pass
             
+    def on_menu_bootloader(self):
+        self.dFlash_clicked()
+        self.fSelect.hide()
+        
+        path = os.path.dirname(os.path.realpath(__file__))
+
+        files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
+        self.flashType=2
+        self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: qlineargradient( x1:0 y1:0, x2:0 y2:1, stop:0 yellow, stop:1 red);")
+            
+        if len(files)>1:
+            (s,r)=TouchAuxListRequester(QCoreApplication.translate("fSelect","Binary"),QCoreApplication.translate("fSelect","Select binary to be flashed:"),files,files[0],"Okay").exec_()
+
+            if s: # flash file selected
+                self.flashFile=r
+                self.fBinary.setText(self.flashFile)
+                self.fFlash.setDisabled(False)
+        elif len(files)==1:
+                self.flashFile=files[0]
+                self.fBinary.setText(self.flashFile)
+                self.fFlash.setDisabled(False)        
+    
+    
     def checkFtdComm(self):
         if self.act_duino!=None:
             n=self.act_duino.comm("ftduino_id_get")
@@ -157,27 +195,37 @@ class FtcGuiApplication(TouchApplication):
                 self.act_duino.close()
             except:
                 pass
-        duino=self.device[self.dList.currentIndex()]    
-        self.act_duino=ftd.ftduino(duino)
-
+        
+        if len(self.device)>0:
+            duino=self.device[self.dList.currentIndex()]    
+            self.act_duino=ftd.ftduino(duino)
+        
         time.sleep(0.25)
         
-        n=self.act_duino.comm("ftduino_id_get")
-
+        if self.act_duino!=None: n=self.act_duino.comm("ftduino_id_get")
+        else: n="Fail"
+        
         if n!="Fail" and n!="":
             self.dComm.setStyleSheet("font-size: 20px; background-color: darkgreen;")
-            self.dComm.setText(QCoreApplication.translate("comm","active: v")+self.act_duino.comm("ftduino_direct_get_version"))
+            self.dComm.setText(QCoreApplication.translate("comm","SW: v")+self.act_duino.comm("ftduino_direct_get_version"))
             self.dRename.setDisabled(False)
             self.dFlash.setDisabled(False)
             self.dIO.setDisabled(False)
             
-        else:
+        elif len(self.device)>0:
             self.dComm.setStyleSheet("font-size: 20px; background-color: darkred;")
             self.dComm.setText(QCoreApplication.translate("comm","failed"))
             self.dRename.setDisabled(True)
             self.dFlash.setDisabled(False)
             self.dIO.setDisabled(True)
             self.act_duino=None
+        else:
+            self.dComm.setStyleSheet("font-size: 20px;")
+            self.dComm.setText(QCoreApplication.translate("comm","none"))
+            self.dRename.setDisabled(True)
+            self.dFlash.setDisabled(True)
+            self.dIO.setDisabled(True)
+            self.act_duino=None            
             
     def rename_clicked(self):
         n=self.act_duino.comm("ftduino_id_get")
@@ -201,9 +249,10 @@ class FtcGuiApplication(TouchApplication):
     def fSelect_clicked(self):
         self.flashFile=""
         ftb=TouchAuxMultibutton(QCoreApplication.translate("fSelect","Flash"), self.window)
-        ftb.setButtons([ QCoreApplication.translate("fSelect","Local File"),
+        ftb.setText(QCoreApplication.translate("fSelect","Please select the source of the binary to flash:"))
+        ftb.setButtons([ QCoreApplication.translate("fSelect","Local Cache"),
                         QCoreApplication.translate("fSelect","Download"),
-                        QCoreApplication.translate("fSelect","Bootloader")
+                        #QCoreApplication.translate("fSelect","Bootloader")
                         ] )
         ftb.setTextSize(3)
         ftb.setBtnTextSize(3)
