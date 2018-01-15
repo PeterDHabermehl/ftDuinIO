@@ -7,6 +7,76 @@ from PyQt4 import QtCore
 from TouchStyle import *
 from TouchAuxiliary import *
 from PyQt4.QtCore import QTimer
+import queue, pty, subprocess, select, os
+
+MAX_TEXT_LINES=50
+STD_STYLE="QPlainTextEdit { font-size: 12px; color: white; background-color: black; font-family: monospace; }"
+EXT_STYLE="QPlainTextEdit { font-size: 8px; color: #c9ff74; background-color: #184d00; font-family: monospace; }"
+
+class TextWidget(QPlainTextEdit):
+    def __init__(self, parent=None):
+        QTextEdit.__init__(self, parent)
+        self.setMaximumBlockCount(MAX_TEXT_LINES)
+        self.setReadOnly(True)
+        style = STD_STYLE
+        self.setStyleSheet(style)
+    
+        # a timer to read the ui output queue and to update
+        # the screen
+        self.ui_queue = queue.Queue()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.on_timer)
+        self.timer.start(10)
+
+    def append_str(self, text, color=None):
+        self.moveCursor(QTextCursor.End)
+        if not hasattr(self, 'tf') or not self.tf:
+            self.tf = self.currentCharFormat()
+            self.tf.setFontWeight(QFont.Bold);
+        if color:
+            tf = self.currentCharFormat()
+            tf.setForeground(QBrush(QColor(color)))
+            self.textCursor().insertText(text, tf);
+        else:
+            self.textCursor().insertText(text, self.tf);
+            
+    def delete(self):
+        self.textCursor().deletePreviousChar()
+        
+    def append(self, text, color=None):
+        pstr = ""
+        for c in text:
+            # special char!
+            if c in "\b\a":
+                if pstr != "":
+                    self.append_str(pstr, color)
+                    pstr = ""
+        
+                if c == '\b':
+                    self.delete()
+            else:
+                pstr = pstr + c
+
+        if pstr != "":
+            self.append_str(pstr, color)
+
+        # put something into output queue
+    def write(self, str):
+        self.ui_queue.put( str )
+    
+    def clear(self):
+        self.setPlainText("")
+    
+        # regular timer to check for messages in the queue
+        # and to output them locally
+    def on_timer(self):
+        while not self.ui_queue.empty():
+            # get from queue
+            e = self.ui_queue.get()
+
+            # strings are just sent
+            if type(e) is str:
+                self.append(e)
 
 class FtcGuiApplication(TouchApplication):
     def __init__(self, args):
@@ -30,11 +100,14 @@ class FtcGuiApplication(TouchApplication):
         self.checker.timeout.connect(self.checkFtdComm)
         self.checker.start(250)
         
+        self.app_process = None
+        self.flashfile = None
         
         self.exec_()        
         
     def end(self):
-        self.out=False        
+        self.out=False
+        self.on_close()
         if self.act_duino!=None:
             try:
                 self.act_duino.close()
@@ -44,18 +117,23 @@ class FtcGuiApplication(TouchApplication):
     def checkFtdComm(self):
         if self.act_duino!=None:
             n=self.act_duino.comm("ftduino_id_get")
+            print("n",n, self.act_duino)
             if n=="Fail":
+                print("uh")
                 self.act_duino=None
                 self.ftdcomm()    
         
     def ftdscan(self):
         duinos=ftd.ftduino_scan()
         self.duinos=[]
+        self.device=[]
         for d in duinos:
             if d[1]!="":
                 self.duinos.append(d[1])
+                self.device.append(d[0])
             else:
                 self.duinos.append(d[0])
+                self.device.append(d[0])
         self.dList.clear()
 
         if len(self.duinos)>0:
@@ -67,7 +145,11 @@ class FtcGuiApplication(TouchApplication):
             self.dIO.setDisabled(True)
             self.dList.addItem(QCoreApplication.translate("comm","none found"))
             self.dComm.setStyleSheet("font-size: 20px;")
-            self.dComm.setText(QCoreApplication.translate("comm","no"))
+            self.dComm.setText(QCoreApplication.translate("comm","none"))
+            self.act_duino=None
+            
+        self.dComm.repaint()
+        self.processEvents()
                 
     def ftdcomm(self):
         if self.act_duino!=None:
@@ -75,23 +157,28 @@ class FtcGuiApplication(TouchApplication):
                 self.act_duino.close()
             except:
                 pass
-            
-        self.act_duino=ftd.ftduino(ftd.ftduino_find_by_name(self.dList.currentText()))
+        duino=self.device[self.dList.currentIndex()]    
+        self.act_duino=ftd.ftduino(duino)
+
         time.sleep(0.25)
+        
         n=self.act_duino.comm("ftduino_id_get")
-        if n!="Fail":
+
+        if n!="Fail" and n!="":
             self.dComm.setStyleSheet("font-size: 20px; background-color: darkgreen;")
-            self.dComm.setText(QCoreApplication.translate("comm","active"))
+            self.dComm.setText(QCoreApplication.translate("comm","active: v")+self.act_duino.comm("ftduino_direct_get_version"))
             self.dRename.setDisabled(False)
             self.dFlash.setDisabled(False)
             self.dIO.setDisabled(False)
+            
         else:
             self.dComm.setStyleSheet("font-size: 20px; background-color: darkred;")
             self.dComm.setText(QCoreApplication.translate("comm","failed"))
             self.dRename.setDisabled(True)
             self.dFlash.setDisabled(False)
             self.dIO.setDisabled(True)
-        
+            self.act_duino=None
+            
     def rename_clicked(self):
         n=self.act_duino.comm("ftduino_id_get")
         if n!="" and n!="Fail":
@@ -107,36 +194,149 @@ class FtcGuiApplication(TouchApplication):
     def rescan_clicked(self):
         self.dComm.setStyleSheet("font-size: 20px; background-color: darkorange;")
         self.dComm.setText(QCoreApplication.translate("comm","scanning"))
-        self.processEvents()
         self.dComm.repaint()
+        self.processEvents()
         self.ftdscan()
     
+    def fSelect_clicked(self):
+        self.flashFile=""
+        ftb=TouchAuxMultibutton(QCoreApplication.translate("fSelect","Flash"), self.window)
+        ftb.setButtons([ QCoreApplication.translate("fSelect","Local File"),
+                        QCoreApplication.translate("fSelect","Download"),
+                        QCoreApplication.translate("fSelect","Bootloader")
+                        ] )
+        ftb.setTextSize(3)
+        ftb.setBtnTextSize(3)
+        (t,p)=ftb.exec_()
+        
+        if not t: return
+        
+        path = os.path.dirname(os.path.realpath(__file__))
+        
+        if p == QCoreApplication.translate("fSelect","Local File"):
+            files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
+            self.flashType=1
+            self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
+        if p == QCoreApplication.translate("fSelect","Download"):
+            pass
+        if p == QCoreApplication.translate("fSelect","Bootloader"):
+            files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
+            self.flashType=2
+            self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: qlineargradient( x1:0 y1:0, x2:0 y2:1, stop:0 yellow, stop:1 red);")
+            
+        if len(files)>0:
+            (s,r)=TouchAuxListRequester(QCoreApplication.translate("fSelect","Binary"),QCoreApplication.translate("fSelect","Select binary to be flashed:"),files,files[0],"Okay").exec_()
+
+            if s: # flash file selected
+                self.flashFile=r
+                self.fBinary.setText(self.flashFile)
+                self.fFlash.setDisabled(False)
+        else:
+            self.flashType=0
+    
     def fFlash_clicked(self):
+        flasherror=False
+        
         self.fLabel.hide()
         self.fSelect.hide()
         self.fBinary.hide()
         self.fFlash.hide()
-        self.fWidget.hide()
-
-        self.fWidget.show()
-    
-        self.fCon.setText("ftd:> avrdude ftduino_direct")
+        self.fBack.setDisabled(True)
+        self.fBack.setText(QCoreApplication.translate("flash","please wait"))
+        self.fCon.clear()
         self.processEvents()
         self.fWidget.repaint()
-        for n in range(0,16):
-            a="["
-            for m in range(0,20):
-                if m<=n: a=a + "="
-                else: a=a+" "
-            a=a+"]"
-            self.fCon.setText("ftd:> avrdude ftduino_direct\n"+a)
+        
+        path = os.path.dirname(os.path.realpath(__file__))  
+        
+        if self.flashType==1: # binary flash
+            duino=self.device[self.dList.currentIndex()]
+            # activate bootloader
+            if self.act_duino!="None":
+                try:
+                    self.act_duino.close()
+                except:
+                    pass
+            self.act_duino=None
+            
+            ser = serial.Serial()
+            ser.port = duino
+            ser.baudrate = 1200
+            ser.open()
+            ser.setDTR(0)
+            ser.close()
+            time.sleep(2)
+            # prepare avrdude call
+            cmd = [ "avrdude",
+                   "-v",
+                   "-patmega32u4",
+                   "-cavr109",
+                   "-P"+duino,
+                   "-b57600",
+                   "-D",
+                   "-Uflash:w:"+os.path.join(path, "binaries", self.flashFile)+".ino.hex:i"]
+
+            flasherror=self.exec_command(cmd)
+        
+        elif self.flashType==2: # bootloader flash
+            self.fCon.write("C:> ")
+            self.fWidget.repaint()
+            for i in "CP/M":
+                self.fCon.write(i)
+                self.processEvents()
+                self.fWidget.repaint()
+                time.sleep(0.25)
+                
+            self.fCon.write("\nCP/M loading\n")
+            self.processEvents()
+            for i in "##########":
+                self.fCon.write(i)
+                self.processEvents()
+                self.fWidget.repaint()
+                time.sleep(0.2)
+            
+            time.sleep(1)
+            self.fCon.setStyleSheet(EXT_STYLE)
+            self.fCon.clear()
             self.processEvents()
             self.fWidget.repaint()
-            time.sleep(0.2)
+            time.sleep(0.5)
+            self.fCon.write("CP/M 2.2 - Amstrad Consumer Electronics plc\n\n")
+            self.fWidget.repaint()
+            self.processEvents()            
+            time.sleep(1)
+            self.fCon.write("A>dir\n")
+            self.fWidget.repaint()
+            self.processEvents()            
+            time.sleep(0.4)        
+            self.fCon.write("A: AVRDUDE  COM : "+self.flashFile[:8]+" BIN\nA: STAT     COM : FILECOPY COM\n")
+            self.fWidget.repaint()
+            self.processEvents()
+            time.sleep(0.25)
+            self.fCon.write("A: DISC     BAS : SETUP    COM\nA: BOOTGEN  COM : LOAD     COM\n")
+            self.fWidget.repaint()
+            self.processEvents()
+            time.sleep(0.25)
+            self.fCon.write("A>avrdude "+self.flashFile[:8]+".bin\n")
+            self.processEvents()
+            self.fWidget.repaint()
+            self.processEvents()
+            time.sleep(2)
+
+            cmd=["avrdude",
+                 "-v",
+                 "-patmega32u4",
+                 "-cusbasp",
+                 "-Pusb", 
+                 "-Uflash:w:"+os.path.join(path, "bootloader", self.flashFile)+":i",
+                 "-Ulock:w:0x2F:m" ]
             
-        time.sleep(1)
-        self.fCon.setText("ftd:> avrdude ftduino_direct\n"+a+"\navrdude failed error 42\nftd:>")
-    
+            flasherror=self.exec_command(cmd)
+        self.fWidget.repaint()
+        self.fBack.setDisabled(False)
+        self.fBack.setText(QCoreApplication.translate("flash","Back"))
+        self.processEvents()            
+        
     def xBack_clicked(self):
         self.out=False
         self.dWidget.show()
@@ -244,7 +444,9 @@ class FtcGuiApplication(TouchApplication):
     def dFlash_clicked(self):
         self.dWidget.hide()
         self.ioWidget.hide()
-        self.fCon.setText("ftd:> ")
+        self.fCon.clear()
+        self.fCon.setStyleSheet(STD_STYLE)
+        self.fCon.write("C:>")
         self.fLabel.show()
         self.fSelect.show()
         self.fBinary.show()
@@ -338,18 +540,15 @@ class FtcGuiApplication(TouchApplication):
         self.fBinary.setReadOnly(True)
         self.fBinary.setStyleSheet("font-size: 20px; color: white;")
         self.fBinary.setAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter)
-        self.fBinary.setText(QCoreApplication.translate("flash","ftduino_direct"))
+        self.fBinary.setText(QCoreApplication.translate("flash","-- none --"))
         flash.addWidget(self.fBinary)
         
         self.fFlash=QPushButton(QCoreApplication.translate("flash","--> Flash <--"))
         self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
         flash.addWidget(self.fFlash)
-        
-        self.fCon=QTextEdit()
-        self.fCon.setReadOnly(True)
-        self.fCon.setWordWrapMode(QTextOption.WrapAnywhere)
-        self.fCon.setStyleSheet("font-size: 12px; color: white; background-color: black; font-family: monospace;")
-        self.fCon.setText("root> ")
+        self.fFlash.setDisabled(True)
+                
+        self.fCon=TextWidget(self.window)
         flash.addWidget(self.fCon)
         
         self.fBack=QPushButton(QCoreApplication.translate("flash","Back"))
@@ -358,6 +557,7 @@ class FtcGuiApplication(TouchApplication):
         
         self.fWidget.setLayout(flash)
         
+        self.fSelect.clicked.connect(self.fSelect_clicked)
         self.fFlash.clicked.connect(self.fFlash_clicked)
         self.fBack.clicked.connect(self.xBack_clicked)        
     
@@ -676,6 +876,62 @@ class FtcGuiApplication(TouchApplication):
         self.act_duino.comm("motor_set M4 brake 0")
     def mPower_changed(self):
         self.mPVal.setText(str(self.mPower.value()))
+
+
+    def exec_command(self, commandline):
+            # run subprocess
+            self.log_master_fd, self.log_slave_fd = pty.openpty()
+            self.app_process = subprocess.Popen(commandline, stdout=self.log_slave_fd, stderr=self.log_slave_fd)
+            self.app_process.returncode=False
+            self.app_process.command=commandline[0]
+            
+            # start a timer to monitor the ptys
+            self.log_timer = QTimer()
+            self.log_timer.timeout.connect(self.on_log_timer)
+            self.log_timer.start(10)
+
+            while self.app_is_running():
+                self.fWidget.repaint()
+                self.processEvents()
+                self.app_process.processEvents()
+                time.sleep(0.1)
+            time.sleep(1)
+            self.fWidget.repaint()
+            self.processEvents()
+            self.fWidget.repaint()
+            
+            if self.app_process.returncode: # Returncode, da stimmt evtl. was nicht...
+                return self.app_process.returncode
+            
+    def app_is_running(self):
+        if self.app_process == None:
+            return False
+
+        return self.app_process.poll() == None
+    
+    def on_close(self):
+        if self.app_is_running():
+            self.app_process.terminate()
+            self.app_process.wait()
+        
+    def on_log_timer(self):
+        # first read whatever the process may have written
+        if select.select([self.log_master_fd], [], [], 0)[0]:
+            output = os.read(self.log_master_fd, 100)
+            if output: 
+                self.fCon.write(str(output, "utf-8"))
+        else:
+            # check if process is still alive
+            if not self.app_is_running():
+                if self.app_process.returncode:
+                    self.fCon.write(self.app_process.command+" ended with return value " + str(self.app_process.returncode) + "\n")
+
+                # close any open ptys
+                os.close(self.log_master_fd)
+                os.close(self.log_slave_fd)
+
+                # remove timer
+                self.log_timer = None
         
 if __name__ == "__main__":
     FtcGuiApplication(sys.argv)
