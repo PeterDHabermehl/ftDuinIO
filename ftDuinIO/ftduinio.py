@@ -16,6 +16,9 @@ STORE= "https://raw.githubusercontent.com/harbaum/ftduino/master/bin/"
 STD_STYLE="QPlainTextEdit { font-size: 12px; color: white; background-color: black; font-family: monospace; }"
 EXT_STYLE="QPlainTextEdit { font-size: 8px; color: #c9ff74; background-color: #184d00; font-family: monospace; }"
 
+FTDUINO_VIRGIN_VIDPID="1c40:0537"
+FTDUINO_VIDPID="1c40:0538"
+
 TST=False
 
 class TextWidget(QPlainTextEdit):
@@ -166,9 +169,8 @@ class FtcGuiApplication(TouchApplication):
     def checkFtdComm(self):
         if self.act_duino!=None:
             n=self.act_duino.comm("ftduino_id_get")
-            print("n",n, self.act_duino)
+            # print("n",n, self.act_duino)
             if n=="Fail":
-                print("uh")
                 self.act_duino=None
                 self.ftdcomm()    
         
@@ -403,24 +405,47 @@ class FtcGuiApplication(TouchApplication):
                     pass
             self.act_duino=None
             
-            ser = serial.Serial()
-            ser.port = duino
-            ser.baudrate = 1200
-            ser.open()
-            ser.setDTR(0)
-            ser.close()
-            time.sleep(2)
-            # prepare avrdude call
-            cmd = [ "avrdude",
-                   "-v",
-                   "-patmega32u4",
-                   "-cavr109",
-                   "-P"+duino,
-                   "-b57600",
-                   "-D",
-                   "-Uflash:w:"+os.path.join(path, "binaries", self.flashFile)+".ino.hex:i"]
+            try:
+                ser = serial.Serial()
+                ser.port = duino
+                ser.baudrate = 1200
+                ser.open()
+                ser.setDTR(0)
+                ser.close()
+                time.sleep(2)
+            except:
+                pass
+            
+            devices = []
+            for dev in serial.tools.list_ports.grep("vid:pid="+FTDUINO_VIDPID):
+                devices.append(dev[0])
+            for dev in serial.tools.list_ports.grep("vid:pid="+FTDUINO_VIRGIN_VIDPID):
+                devices.append(dev[0])
+                
+            if len(devices)>1:
+                t=TouchMessageBox(QCoreApplication.translate("flash","Error"), self.window)
+                t.setText(QCoreApplication.translate("flash","More than one ftDuino connected! Please disconnect all but the device to be flashed."))
+                t.setPosButton(QCoreApplication.translate("flash","Okay"))
+                t.exec_() 
+                return
+            elif len(devices)<1:
+                t=TouchMessageBox(QCoreApplication.translate("flash","Error"), self.window)
+                t.setText(QCoreApplication.translate("flash","No ftDuino connected! Please connect the device to be flashed."))
+                t.setPosButton(QCoreApplication.translate("flash","Okay"))
+                t.exec_() 
+                return
+            else:            
+                # prepare avrdude call
+                cmd = [ "avrdude",
+                    "-v",
+                    "-patmega32u4",
+                    "-cavr109",
+                    "-P"+devices[0],
+                    "-b57600",
+                    "-D",
+                    "-Uflash:w:"+os.path.join(path, "binaries", self.flashFile)+".ino.hex:i"]
 
-            flasherror=self.exec_command(cmd)
+                flasherror=self.exec_command(cmd)
         
         elif self.flashType==2: # bootloader flash
             self.fCon.write("C:> ")
@@ -1063,9 +1088,24 @@ class FtcGuiApplication(TouchApplication):
         else:
             # check if process is still alive
             if not self.app_is_running():
+                time.sleep(1.0)
+                while select.select([self.log_master_fd], [], [], 0)[0]:
+                    output = os.read(self.log_master_fd, 100)
+                    if output: 
+                        self.fCon.write(str(output, "utf-8"))
+                    time.sleep(0.01)
+                    
+                    self.fWidget.repaint()
+                    self.processEvents()
+                    self.fWidget.repaint()  
+                
                 if self.app_process.returncode:
                     self.fCon.write(self.app_process.command+" ended with return value " + str(self.app_process.returncode) + "\n")
 
+                self.fWidget.repaint()
+                self.processEvents()
+                self.fWidget.repaint()
+                
                 # close any open ptys
                 os.close(self.log_master_fd)
                 os.close(self.log_slave_fd)
