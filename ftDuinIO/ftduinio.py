@@ -358,6 +358,7 @@ class FtcGuiApplication(TouchApplication):
                         file.close()
                         target = os.path.dirname(os.path.realpath(__file__))
                         target = os.path.join(target, "binaries", filename)
+                        v=QCoreApplication.translate("flash","Replace")
                         if os.path.exists(target):
                             t=TouchMessageBox(QCoreApplication.translate("flash","Download"), self.window)
                             t.setText( QCoreApplication.translate("flash","File:") + "<br>"+ filename + "<br><br>" +
@@ -375,6 +376,11 @@ class FtcGuiApplication(TouchApplication):
                             filename=""
                     except: # download failed
                         filename=""
+                        t=TouchMessageBox(QCoreApplication.translate("flash","Store"), self.window)
+                        t.setCancelButton()
+                        t.setText(QCoreApplication.translate("flash","Download failed."))
+                        t.setPosButton(QCoreApplication.translate("flash","Okay"))
+                        t.exec_()
 
         self.window.show()
         return [filename]
