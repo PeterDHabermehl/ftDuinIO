@@ -7,8 +7,12 @@ from codecs import *
 
 def mainpage():
     hth.htmlhead("ftDuinIO", "ftDuino I/O test and flash tool")
+    hth.lf(1)
     print('<img src="icon.png">')
+    hth.lf(1)
     hth.separator()
+    hth.lf(1)
+    print('Upload .ino.hex binary file to the local cache:<br><br>')
     print('<form action="index.py" method="post" enctype="multipart/form-data">')
     print('<label>')
     hth.text("hex file:")         
