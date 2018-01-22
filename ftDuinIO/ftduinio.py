@@ -21,6 +21,20 @@ FTDUINO_VIDPID="1c40:0538"
 
 TST=False
 
+try:
+    with open(os.path.dirname(os.path.realpath(__file__)) + "/manifest","r", encoding="utf-8") as f:
+        r=f.readline()
+        while not "version" in r:
+          r=f.readline()
+        
+        if "version" in r:
+          VSTRING = "v" + r[ r.index(":")+2 : ]
+        else: VSTRING=""
+        f.close()
+except:
+    VSTRING="n/a" 
+    
+
 class TextWidget(QPlainTextEdit):
     def __init__(self, parent=None):
         QTextEdit.__init__(self, parent)
@@ -107,16 +121,16 @@ class FtcGuiApplication(TouchApplication):
         self.menu=self.window.addMenu()
         self.menu.setStyleSheet("font-size: 24px;")
                 
-        #self.m_cache = self.menu.addAction(QCoreApplication.translate("mmain","Cache"))
-        #self.cache.triggered.connect(self.on_menu_cache) 
+        self.m_cache = self.menu.addAction(QCoreApplication.translate("mmain","Cache"))
+        self.m_cache.triggered.connect(self.on_menu_cache) 
         
         #self.menu.addSeparator()
         
         self.m_bootloader = self.menu.addAction(QCoreApplication.translate("mmain","Flash Bootloader"))
         self.m_bootloader.triggered.connect(self.on_menu_bootloader)
         
-        #self.m_about = self.menu.addAction(QCoreApplication.translate("mmain","About"))
-        #self.m_about.triggered.connect(self.on_menu_about)
+        self.m_about = self.menu.addAction(QCoreApplication.translate("mmain","About"))
+        self.m_about.triggered.connect(self.on_menu_about)
         
         self.window.setCentralWidget(self.mainWidget)
         
@@ -145,7 +159,7 @@ class FtcGuiApplication(TouchApplication):
     def on_menu_bootloader(self):
         self.dFlash_clicked()
         self.fSelect.hide()
-        self.m_bootloader.setDisabled(True)
+        self.menu.setDisabled(True)
         
         path = os.path.dirname(os.path.realpath(__file__))
 
@@ -165,11 +179,36 @@ class FtcGuiApplication(TouchApplication):
                 self.fBinary.setText(self.flashFile)
                 self.fFlash.setDisabled(False)        
     
-    
+    def on_menu_about(self):
+        t=TouchMessageBox(QCoreApplication.translate("about","About"), self.window)
+        t.setCancelButton()
+        t.addPixmap(QPixmap("icon.png"))
+        text=QCoreApplication.translate("about","<font size='2'>ftDuinIO<br><font size='1'>Version ")
+        text=text+VSTRING
+        text=text+QCoreApplication.translate("about","<center>(c) 2018 Peter Habermehl<br>for the ft community")
+        t.setText(text)
+        t.setPosButton(QCoreApplication.translate("about","Okay"))
+        t.exec_()   
+        
+    def on_menu_cache(self):
+        path = os.path.dirname(os.path.realpath(__file__))
+        files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
+        s=False
+        if len(files)>0:
+            (s,r)=TouchAuxListRequester(QCoreApplication.translate("cache","Cache"),QCoreApplication.translate("cache","Select binary"),files,files[0],"Okay").exec_()
+            if s:
+                t=TouchMessageBox(QCoreApplication.translate("cache","Download"), self.window)
+                t.setText( QCoreApplication.translate("cache","File:") + "<br>"+ r + "<br><br>" +
+                           QCoreApplication.translate("cache","stored in cache."))
+                t.setPosButton(QCoreApplication.translate("cache","Delete!"))
+                t.setNegButton(QCoreApplication.translate("cache","Okay"))
+                (c,v)=t.exec_() 
+                if v==QCoreApplication.translate("cache","Delete!"):
+                    os.remove(os.path.join(path,"binaries",r+".ino.hex"))
+                
     def checkFtdComm(self):
         if self.act_duino!=None:
             n=self.act_duino.comm("ftduino_id_get")
-            # print("n",n, self.act_duino)
             if n=="Fail":
                 self.act_duino=None
                 self.ftdcomm()    
@@ -392,7 +431,7 @@ class FtcGuiApplication(TouchApplication):
         self.fSelect.hide()
         self.fBinary.hide()
         self.fFlash.hide()
-        self.m_bootloader.setDisabled(True)
+        self.menu.setDisabled(True)
         self.fBack.setDisabled(True)
         self.fBack.setText(QCoreApplication.translate("flash","please wait"))
         self.fCon.clear()
@@ -514,6 +553,7 @@ class FtcGuiApplication(TouchApplication):
         
     def xBack_clicked(self):
         self.out=False
+        self.menu.setDisabled(False)
         self.dWidget.show()
         self.fWidget.hide()
         self.ioWidget.hide()
@@ -1057,7 +1097,7 @@ class FtcGuiApplication(TouchApplication):
         self.mPVal.setText(str(self.mPower.value()))
     
     def execFinished(self,returncode):
-        self.m_bootloader.setDisabled(False)
+        self.menu.setDisabled(False)
         if returncode: # Returncode, da stimmt evtl. was nicht...
             return returncode
         return
