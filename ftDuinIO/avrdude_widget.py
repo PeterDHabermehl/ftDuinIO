@@ -94,8 +94,13 @@ class AvrdudeWidget(QWidget):
         return True
 
     def build_command(self, file, bootloader=False):
-        cmd = [ "avrdude",
-                "-C./avrdude.conf",
+        path = os.path.dirname(os.path.realpath(__file__))
+        # relative paths are relative to this python file
+        if file[0] != '/':
+            file = os.path.join(path,file)
+        
+        cmd = [ "avrdude", 
+                "-C"+os.path.join(path,"avrdude.conf"),
                 "-patmega32u4" ]
         
         if bootloader:
@@ -270,7 +275,7 @@ class FtcGuiApplication(TxtApplication):
         vbox_w = QWidget()
         vbox = QVBoxLayout()
         
-        self.avrdude = AvrdudeWidget("/dev/ttyACM0", self.w)
+        self.avrdude = AvrdudeWidget("/dev/ttyACM3", self.w)
         vbox.addWidget(self.avrdude)
 
         vbox.addStretch()
@@ -290,10 +295,10 @@ class FtcGuiApplication(TxtApplication):
         self.exec_()        
 
     def on_bootloader_flash(self):
-        self.avrdude.flash("./bootloader/Caterina.hex", True)
+        self.avrdude.flash("bootloader/Caterina.hex", True)
 
     def on_blink_flash(self):
-        self.avrdude.flash("./binaries/Blink.ino.hex")
+        self.avrdude.flash("binaries/Blink.ino.hex")
         
 if __name__ == "__main__":
     FtcGuiApplication(sys.argv)
