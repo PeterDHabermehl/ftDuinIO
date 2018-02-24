@@ -96,7 +96,7 @@ class AvrdudeWidget(QWidget):
     def build_command(self, file, bootloader=False):
         path = os.path.dirname(os.path.realpath(__file__))
         # relative paths are relative to this python file
-        if file[0] != '/':
+        if file and file[0] != '/':
             file = os.path.join(path,file)
         
         cmd = [ "avrdude", 
