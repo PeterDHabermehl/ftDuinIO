@@ -434,8 +434,7 @@ class FtcGuiApplication(TouchApplication):
         self.fFlash.hide()
         self.avrdude.show()
         self.menu.setDisabled(True)
-        self.fBack.setDisabled(True)
-        self.fBack.setText(QCoreApplication.translate("flash","please wait"))
+        self.fBack.hide()
         self.processEvents()
         self.fWidget.repaint()
 
@@ -540,6 +539,7 @@ class FtcGuiApplication(TouchApplication):
         self.out=False
         self.menu.setDisabled(False)
         self.avrdude.hide()
+        self.fBack.show()
         self.dWidget.show()
         self.fWidget.hide()
         self.ioWidget.hide()
@@ -723,6 +723,13 @@ class FtcGuiApplication(TouchApplication):
         self.dIO.clicked.connect(self.dIO_clicked)
         self.dFlash.clicked.connect(self.dFlash_clicked)
 
+    def on_avrdude_done(self, ok):
+        # close dialog automatically if everything is fine
+        if ok:
+            self.xBack_clicked()
+        else:
+            self.fBack.show()
+        
     def setFWidget(self):       
         # widget für Flashtool:
         
@@ -754,6 +761,7 @@ class FtcGuiApplication(TouchApplication):
         # add avrdude widget
         self.avrdude = avrdude_widget.AvrdudeWidget(self.window)
         self.avrdude.hide()
+        self.avrdude.done.connect(self.on_avrdude_done)
         flash.addWidget(self.avrdude)
         
         self.fFlash=QPushButton(QCoreApplication.translate("flash","--> Flash <--"))

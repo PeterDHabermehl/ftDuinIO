@@ -29,6 +29,8 @@ class LogDialog(TxtDialog):
         self.setCentralWidget(txt)
         
 class AvrdudeWidget(QWidget):
+    done = pyqtSignal(bool)
+    
     def __init__(self, parent = None):
         QWidget.__init__(self, parent)
         self.port = None
@@ -244,7 +246,7 @@ class AvrdudeWidget(QWidget):
 
                 # remove timer
                 self.log_timer = None
-            
+
                 # if this was only the first of the two bootloader
                 # steps then only report errors
                 if self.bootloader_file:
@@ -259,6 +261,8 @@ class AvrdudeWidget(QWidget):
                 else:
                     self.set_result(self.app_process.returncode == 0)
 
+                self.done.emit(self.app_process.returncode == 0)
+                
     def flash(self, file, bootloader=False):
         self.log = ""
         self.bootloader_file = None
