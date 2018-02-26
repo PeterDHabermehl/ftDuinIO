@@ -3,7 +3,7 @@
 #
 
 import os, sys, serial, time
-import queue, pty, subprocess, select
+import queue, pty, subprocess, select, stat
 from TxtStyle import *
 
 class SmallLabel(QLabel):
@@ -29,9 +29,10 @@ class LogDialog(TxtDialog):
         self.setCentralWidget(txt)
         
 class AvrdudeWidget(QWidget):
-    def __init__(self, port, parent = None):
+    def __init__(self, parent = None):
         QWidget.__init__(self, parent)
-        self.port = port
+        self.port = None
+        self.bootloader_file = None
         
         self.vbox = QVBoxLayout()
 
@@ -65,6 +66,18 @@ class AvrdudeWidget(QWidget):
 
         self.setLayout(self.vbox)
 
+    def reset(self):
+        # reset label above
+        self.result.setStyleSheet("");
+        self.result.setText("")
+        self.log_btn.setVisible(False)
+        # reset progress bar
+        self.progress.setValue(0)
+        self.lbl.setText("Idle")
+        
+    def setPort(self, port):
+        self.port = port
+        
     def on_log(self):
         dialog = LogDialog(self.log, self.parent())
         dialog.exec_()
@@ -78,7 +91,8 @@ class AvrdudeWidget(QWidget):
             ser.open()
             ser.setDTR(0)
             ser.close()
-            time.sleep(1)
+            time.sleep(2)
+            
         except BrokenPipeError:
             # a BrokenPipe error happens on setDTR if the bootloader
             # is already active. So we ignore this
@@ -90,7 +104,7 @@ class AvrdudeWidget(QWidget):
             print(sys.exc_info())
             self.log = "Error starting bootloader: " + str(sys.exc_info()[0])
             return False
-        
+
         return True
 
     def build_command(self, file, bootloader=False):
@@ -127,7 +141,7 @@ class AvrdudeWidget(QWidget):
     def exec_command(self, commandline):
         self.buffer = ""
         self.state = None
-        
+
         # run subprocess
         self.log_master_fd, self.log_slave_fd = pty.openpty()
         self.app_process = subprocess.Popen(commandline, stdout=self.log_slave_fd, stderr=self.log_slave_fd)
@@ -250,11 +264,7 @@ class AvrdudeWidget(QWidget):
         self.bootloader_file = None
         self.set_result(None)
         if not bootloader:
-            if not self.trigger_bootloader():
-                self.set_result(False)
-                return
-            
-            cmd = self.build_command(file, bootloader)
+            cmd = self.build_command(file, False)
             self.exec_command(cmd)
         else:
             self.set_state("erase")
@@ -275,7 +285,8 @@ class FtcGuiApplication(TxtApplication):
         vbox_w = QWidget()
         vbox = QVBoxLayout()
         
-        self.avrdude = AvrdudeWidget("/dev/ttyACM3", self.w)
+        self.avrdude = AvrdudeWidget(self.w)
+        self.avrdude.setPort("/dev/ttyACM0")
         vbox.addWidget(self.avrdude)
 
         vbox.addStretch()
@@ -298,6 +309,7 @@ class FtcGuiApplication(TxtApplication):
         self.avrdude.flash("bootloader/Caterina.hex", True)
 
     def on_blink_flash(self):
+        self.avrdude.trigger_bootloader()
         self.avrdude.flash("binaries/Blink.ino.hex")
         
 if __name__ == "__main__":

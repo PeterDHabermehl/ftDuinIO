@@ -9,6 +9,7 @@ from TouchAuxiliary import *
 from PyQt4.QtCore import QTimer
 import queue, pty, subprocess, select, os
 import urllib.request, urllib.parse, urllib.error
+import avrdude_widget
 
 MAX_TEXT_LINES=50
 
@@ -431,13 +432,13 @@ class FtcGuiApplication(TouchApplication):
         self.fSelect.hide()
         self.fBinary.hide()
         self.fFlash.hide()
+        self.avrdude.show()
         self.menu.setDisabled(True)
         self.fBack.setDisabled(True)
         self.fBack.setText(QCoreApplication.translate("flash","please wait"))
-        self.fCon.clear()
         self.processEvents()
         self.fWidget.repaint()
-        
+
         path = os.path.dirname(os.path.realpath(__file__))  
         
         if self.flashType==1: # binary flash
@@ -449,51 +450,9 @@ class FtcGuiApplication(TouchApplication):
                 except:
                     pass
             self.act_duino=None
-            
-            self.fCon.write("C:> ")
-            self.fWidget.repaint()
-            for i in "del c:*.*":
-                self.fCon.write(i)
-                self.processEvents()
-                self.fWidget.repaint()
-                self.processEvents()
-                time.sleep(0.25)
-            time.sleep(2)
-            self.fCon.write("\nC:> ")
-            for i in "avrdude "+self.flashFile+".s19":
-                self.fCon.write(i)
-                self.processEvents()
-                self.fWidget.repaint()
-                self.processEvents()
-                time.sleep(0.25)    
-            self.fCon.write('\nUnknown command "avrdude.com"')
-            self.processEvents()
-            self.fWidget.repaint()
-            self.processEvents()
-            time.sleep(2) 
-            self.fCon.write("\nC:> ")
-            for i in "dir ":
-                self.fCon.write(i)
-                self.processEvents()
-                self.fWidget.repaint()
-                self.processEvents()
-                time.sleep(0.25)                   
-            self.fCon.write('\nUnknown command "dir.com"')
-            self.processEvents()
-            self.fWidget.repaint()
-            self.processEvents()
-            time.sleep(2)        
-            
-            try:
-                ser = serial.Serial()
-                ser.port = duino
-                ser.baudrate = 1200
-                ser.open()
-                ser.setDTR(0)
-                ser.close()
-                time.sleep(2)
-            except:
-                pass
+
+            self.avrdude.setPort(duino)
+            self.avrdude.trigger_bootloader()
             
             devices = []
             for dev in serial.tools.list_ports.grep("vid:pid="+FTDUINO_VIDPID):
@@ -514,17 +473,9 @@ class FtcGuiApplication(TouchApplication):
                 t.exec_() 
                 return
             else:            
-                # prepare avrdude call
-                cmd = [ "avrdude",
-                    "-v",
-                    "-patmega32u4",
-                    "-cavr109",
-                    "-P"+devices[0],
-                    "-b57600",
-                    "-D",
-                    "-Uflash:w:"+os.path.join(path, "binaries", self.flashFile)+".ino.hex:i"]
-
-                flasherror=self.exec_command(cmd)
+                # tell avrdude widget which port to use
+                self.avrdude.setPort(devices[0])
+                self.avrdude.flash(os.path.join("binaries", self.flashFile)+".ino.hex")
         
         elif self.flashType==2: # bootloader flash
             self.fCon.write("C:> ")
@@ -588,6 +539,7 @@ class FtcGuiApplication(TouchApplication):
     def xBack_clicked(self):
         self.out=False
         self.menu.setDisabled(False)
+        self.avrdude.hide()
         self.dWidget.show()
         self.fWidget.hide()
         self.ioWidget.hide()
@@ -693,13 +645,14 @@ class FtcGuiApplication(TouchApplication):
     def dFlash_clicked(self):
         self.dWidget.hide()
         self.ioWidget.hide()
-        self.fCon.clear()
-        self.fCon.setStyleSheet(STD_STYLE)
+
+        self.avrdude.setPort(self.act_duino)
+        self.avrdude.reset()
+        
         self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
         if self.flashType==2:
             self.flashType=0
             self.fBinary.setText("-- none --")
-        self.fCon.write("C:>")
         self.fLabel.show()
         self.fSelect.show()
         self.fBinary.show()
@@ -776,6 +729,8 @@ class FtcGuiApplication(TouchApplication):
         self.fWidget=QWidget()
         
         flash=QVBoxLayout()
+        flash.setContentsMargins(0,0,0,0)
+        flash.addStretch()
         
         hbox=QHBoxLayout()
         
@@ -796,14 +751,17 @@ class FtcGuiApplication(TouchApplication):
         self.fBinary.setText(QCoreApplication.translate("flash","-- none --"))
         flash.addWidget(self.fBinary)
         
+        # add avrdude widget
+        self.avrdude = avrdude_widget.AvrdudeWidget(self.window)
+        self.avrdude.hide()
+        flash.addWidget(self.avrdude)
+        
         self.fFlash=QPushButton(QCoreApplication.translate("flash","--> Flash <--"))
         self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
         flash.addWidget(self.fFlash)
         self.fFlash.setDisabled(True)
-                
-        self.fCon=TextWidget(self.window)
-        flash.addWidget(self.fCon)
-        
+
+        flash.addStretch()
         self.fBack=QPushButton(QCoreApplication.translate("flash","Back"))
         self.fBack.setStyleSheet("font-size: 20px; color: white;")
         flash.addWidget(self.fBack)
@@ -1163,7 +1121,7 @@ class FtcGuiApplication(TouchApplication):
         # first read whatever the process may have written
         if select.select([self.log_master_fd], [], [], 0)[0]:
             output = os.read(self.log_master_fd, 100)
-            if output: 
+            if output:
                 self.fCon.write(str(output, "utf-8"))
         else:
             # check if process is still alive
