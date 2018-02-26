@@ -35,79 +35,9 @@ try:
 except:
     VSTRING="n/a" 
     
-
-class TextWidget(QPlainTextEdit):
-    def __init__(self, parent=None):
-        QTextEdit.__init__(self, parent)
-        self.setMaximumBlockCount(MAX_TEXT_LINES)
-        self.setReadOnly(True)
-        style = STD_STYLE
-        self.setStyleSheet(style)
-    
-        # a timer to read the ui output queue and to update
-        # the screen
-        self.ui_queue = queue.Queue()
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.on_timer)
-        self.timer.start(10)
-
-    def append_str(self, text, color=None):
-        self.moveCursor(QTextCursor.End)
-        if not hasattr(self, 'tf') or not self.tf:
-            self.tf = self.currentCharFormat()
-            self.tf.setFontWeight(QFont.Bold);
-        if color:
-            tf = self.currentCharFormat()
-            tf.setForeground(QBrush(QColor(color)))
-            self.textCursor().insertText(text, tf);
-        else:
-            self.textCursor().insertText(text, self.tf);
-            
-    def delete(self):
-        self.textCursor().deletePreviousChar()
-        
-    def append(self, text, color=None):
-        pstr = ""
-        for c in text:
-            # special char!
-            if c in "\b\a":
-                if pstr != "":
-                    self.append_str(pstr, color)
-                    pstr = ""
-        
-                if c == '\b':
-                    self.delete()
-            else:
-                pstr = pstr + c
-
-        if pstr != "":
-            self.append_str(pstr, color)
-
-        # put something into output queue
-    def write(self, str):
-        self.ui_queue.put( str )
-    
-    def clear(self):
-        self.setPlainText("")
-    
-        # regular timer to check for messages in the queue
-        # and to output them locally
-    def on_timer(self):
-        while not self.ui_queue.empty():
-            # get from queue
-            e = self.ui_queue.get()
-
-            # strings are just sent
-            if type(e) is str:
-                self.append(e)
-
 class FtcGuiApplication(TouchApplication):
-    sigExecFinished=pyqtSignal(int)
-    
     def __init__(self, args):
         TouchApplication.__init__(self, args)
-        
-        self.sigExecFinished.connect(self.execFinished)
         
         self.duinos=[]
         self.act_duino=None
@@ -150,7 +80,6 @@ class FtcGuiApplication(TouchApplication):
         
     def end(self):
         self.out=False
-        self.on_close()
         if self.act_duino!=None:
             try:
                 self.act_duino.close()
@@ -477,59 +406,9 @@ class FtcGuiApplication(TouchApplication):
                 self.avrdude.flash(os.path.join("binaries", self.flashFile)+".ino.hex")
         
         elif self.flashType==2: # bootloader flash
-            self.fCon.write("C:> ")
-            self.fWidget.repaint()
-            for i in "CP/M":
-                self.fCon.write(i)
-                self.processEvents()
-                self.fWidget.repaint()
-                time.sleep(0.25)
-                
-            self.fCon.write("\nCP/M loading\n")
-            self.processEvents()
-            for i in "##########":
-                self.fCon.write(i)
-                self.processEvents()
-                self.fWidget.repaint()
-                time.sleep(0.2)
+            # bootloader
+            self.avrdude.flash(os.path.join("bootloader", self.flashFile), True)
             
-            time.sleep(1)
-            self.fCon.setStyleSheet(EXT_STYLE)
-            self.fCon.clear()
-            self.processEvents()
-            self.fWidget.repaint()
-            time.sleep(0.5)
-            self.fCon.write("CP/M 2.2 - Amstrad Consumer Electronics plc\n\n")
-            self.fWidget.repaint()
-            self.processEvents()            
-            time.sleep(1)
-            self.fCon.write("A>dir\n")
-            self.fWidget.repaint()
-            self.processEvents()            
-            time.sleep(0.4)        
-            self.fCon.write("A: AVRDUDE  COM : "+self.flashFile[:8]+" BIN\nA: STAT     COM : FILECOPY COM\n")
-            self.fWidget.repaint()
-            self.processEvents()
-            time.sleep(0.25)
-            self.fCon.write("A: DISC     BAS : SETUP    COM\nA: BOOTGEN  COM : LOAD     COM\n")
-            self.fWidget.repaint()
-            self.processEvents()
-            time.sleep(0.25)
-            self.fCon.write("A>avrdude "+self.flashFile[:8]+".bin\n")
-            self.processEvents()
-            self.fWidget.repaint()
-            self.processEvents()
-            time.sleep(2)
-
-            cmd=["avrdude",
-                 "-v",
-                 "-patmega32u4",
-                 "-cusbasp",
-                 "-Pusb", 
-                 "-Uflash:w:"+os.path.join(path, "bootloader", self.flashFile)+":i",
-                 "-Ulock:w:0x2F:m" ]
-            
-            flasherror=self.exec_command(cmd)
         self.fWidget.repaint()
         self.fBack.setDisabled(False)
         self.fBack.setText(QCoreApplication.translate("flash","Back"))
@@ -1096,70 +975,6 @@ class FtcGuiApplication(TouchApplication):
     def mPower_changed(self):
         self.mPVal.setText(str(self.mPower.value()))
     
-    def execFinished(self,returncode):
-        self.menu.setDisabled(False)
-        if returncode: # Returncode, da stimmt evtl. was nicht...
-            return returncode
-        return
-    
-    def exec_command(self, commandline):
-            # run subprocess
-            self.log_master_fd, self.log_slave_fd = pty.openpty()
-            self.app_process = subprocess.Popen(commandline, stdout=self.log_slave_fd, stderr=self.log_slave_fd)
-            self.app_process.returncode=False
-            self.app_process.command=commandline[0]
-            
-            # start a timer to monitor the ptys
-            self.log_timer = QTimer()
-            self.log_timer.timeout.connect(self.on_log_timer)
-            self.log_timer.start(10)
-            
-    def app_is_running(self):
-        if self.app_process == None:
-            return False
-
-        return self.app_process.poll() == None
-    
-    def on_close(self):
-        if self.app_is_running():
-            self.app_process.terminate()
-            self.app_process.wait()
-        
-    def on_log_timer(self):
-        # first read whatever the process may have written
-        if select.select([self.log_master_fd], [], [], 0)[0]:
-            output = os.read(self.log_master_fd, 100)
-            if output:
-                self.fCon.write(str(output, "utf-8"))
-        else:
-            # check if process is still alive
-            if not self.app_is_running():
-                time.sleep(1.0)
-                while select.select([self.log_master_fd], [], [], 0)[0]:
-                    output = os.read(self.log_master_fd, 100)
-                    if output: 
-                        self.fCon.write(str(output, "utf-8"))
-                    time.sleep(0.01)
-                    
-                    self.fWidget.repaint()
-                    self.processEvents()
-                    self.fWidget.repaint()  
-                
-                if self.app_process.returncode:
-                    self.fCon.write(self.app_process.command+" ended with return value " + str(self.app_process.returncode) + "\n")
-
-                self.fWidget.repaint()
-                self.processEvents()
-                self.fWidget.repaint()
-                
-                # close any open ptys
-                os.close(self.log_master_fd)
-                os.close(self.log_slave_fd)
-
-                # remove timer
-                self.log_timer = None
-                self.sigExecFinished.emit(self.app_process.returncode)
-                
 if __name__ == "__main__":
     FtcGuiApplication(sys.argv)
 

@@ -252,6 +252,7 @@ class AvrdudeWidget(QWidget):
                 if self.bootloader_file:
                     if self.app_process.returncode:
                         self.set_result(False)
+                        self.done.emit(False)
                     else:
                         # start second bootloader step
                         self.log = ""
@@ -260,8 +261,7 @@ class AvrdudeWidget(QWidget):
                         self.exec_command(cmd)
                 else:
                     self.set_result(self.app_process.returncode == 0)
-
-                self.done.emit(self.app_process.returncode == 0)
+                    self.done.emit(self.app_process.returncode == 0)
                 
     def flash(self, file, bootloader=False):
         self.log = ""
