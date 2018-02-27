@@ -109,11 +109,13 @@ class FtcGuiApplication(TouchApplication):
 
     def get_bootloader(self):
         path = os.path.dirname(os.path.realpath(__file__))
-        files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
+        # remove trailing .hex
+        files = [f[:-4] for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
         return files
 
     def get_binaries(self):
         path = os.path.dirname(os.path.realpath(__file__))
+        # remove trailing .ino.hex
         files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
         return files
         
@@ -360,7 +362,7 @@ class FtcGuiApplication(TouchApplication):
         
         else: # bootloader flash
             # bootloader
-            self.avrdude.flash(os.path.join("bootloader", file), True)
+            self.avrdude.flash(os.path.join("bootloader", file)+".hex", True)
             self.flashBootloader = False
             
         self.fWidget.repaint()
@@ -478,8 +480,12 @@ class FtcGuiApplication(TouchApplication):
     def dFlash_clicked(self):
         # get files to fill combobox
         files = None
-        if self.flashBootloader: files = self.get_bootloader()
-        else:                    files = self.get_binaries()
+        if self.flashBootloader:
+            files = self.get_bootloader()
+            self.fLabel.setText(QCoreApplication.translate("flash","Bootloader:"))
+        else:
+            files = self.get_binaries()
+            self.fLabel.setText(QCoreApplication.translate("flash","Binary sketch:"))
 
         self.dWidget.hide()
         self.ioWidget.hide()
@@ -583,7 +589,7 @@ class FtcGuiApplication(TouchApplication):
         
         hbox=QHBoxLayout()
         
-        self.fLabel=QLabel(QCoreApplication.translate("flash","Binary:"))
+        self.fLabel=QLabel("")
         self.fLabel.setStyleSheet("font-size: 20px;")
         hbox.addWidget(self.fLabel)
         
