@@ -41,7 +41,7 @@ class FtcGuiApplication(TouchApplication):
         
         self.duinos=[]
         self.act_duino=None
-        self.flashType=0
+        self.flashBootloader=False
         
         self.window = TouchWindow("ftDuinIO")       
         self.window.titlebar.close.clicked.connect(self.end)
@@ -87,27 +87,14 @@ class FtcGuiApplication(TouchApplication):
                 pass
             
     def on_menu_bootloader(self):
+        self.flashBootloader=True
+        
         self.dFlash_clicked()
-        self.fSelect.hide()
         self.menu.setDisabled(True)
         
-        path = os.path.dirname(os.path.realpath(__file__))
-
-        files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
-        self.flashType=2
         self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: qlineargradient( x1:0 y1:0, x2:0 y2:1, stop:0 yellow, stop:1 red);")
             
-        if len(files)>1:
-            (s,r)=TouchAuxListRequester(QCoreApplication.translate("fSelect","Binary"),QCoreApplication.translate("fSelect","Select binary to be flashed:"),files,files[0],"Okay").exec_()
-
-            if s: # flash file selected
-                self.flashFile=r
-                self.fBinary.setText(self.flashFile)
-                self.fFlash.setDisabled(False)
-        elif len(files)==1:
-                self.flashFile=files[0]
-                self.fBinary.setText(self.flashFile)
-                self.fFlash.setDisabled(False)        
+        self.fFlash.setDisabled(False)
     
     def on_menu_about(self):
         t=TouchMessageBox(QCoreApplication.translate("about","About"), self.window)
@@ -119,10 +106,19 @@ class FtcGuiApplication(TouchApplication):
         t.setText(text)
         t.setPosButton(QCoreApplication.translate("about","Okay"))
         t.exec_()   
-        
-    def on_menu_cache(self):
+
+    def get_bootloader(self):
+        path = os.path.dirname(os.path.realpath(__file__))
+        files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
+        return files
+
+    def get_binaries(self):
         path = os.path.dirname(os.path.realpath(__file__))
         files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
+        return files
+        
+    def on_menu_cache(self):
+        files = self.get_binaries()
         s=False
         if len(files)>0:
             (s,r)=TouchAuxListRequester(QCoreApplication.translate("cache","Cache"),QCoreApplication.translate("cache","Select binary"),files,files[0],"Okay").exec_()
@@ -231,49 +227,6 @@ class FtcGuiApplication(TouchApplication):
             self.processEvents()
             self.ftdscan()
     
-    def fSelect_clicked(self):
-        self.flashFile=""
-        ftb=TouchAuxMultibutton(QCoreApplication.translate("fSelect","Flash"), self.window)
-        ftb.setText(QCoreApplication.translate("fSelect","Please select the source of the binary to flash:"))
-        ftb.setButtons([ QCoreApplication.translate("fSelect","Local Cache"),
-                        QCoreApplication.translate("fSelect","Download"),
-                        #QCoreApplication.translate("fSelect","Bootloader")
-                        ] )
-        ftb.setTextSize(3)
-        ftb.setBtnTextSize(3)
-        (t,p)=ftb.exec_()
-        
-        if not t: return
-        
-        path = os.path.dirname(os.path.realpath(__file__))
-        
-        if p == QCoreApplication.translate("fSelect","Local Cache"):
-            files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
-            self.flashType=1
-            self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
-        if p == QCoreApplication.translate("fSelect","Download"):
-            self.flashType=1
-            files = self.dlBinary()
-        if p == QCoreApplication.translate("fSelect","Bootloader"):
-            files = [f for f in os.listdir(os.path.join(path,"bootloader")) if os.path.isfile(os.path.join(path, "bootloader", f))]
-            self.flashType=2
-            self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: qlineargradient( x1:0 y1:0, x2:0 y2:1, stop:0 yellow, stop:1 red);")
-            
-        s=False
-        if len(files)>1:
-            (s,r)=TouchAuxListRequester(QCoreApplication.translate("fSelect","Binary"),QCoreApplication.translate("fSelect","Select binary to be flashed:"),files,files[0],"Okay").exec_()
-        elif len(files)==1:
-            s=True
-            r=files[0]
-            
-        if s: # flash file selected
-            self.flashFile=r
-            self.fBinary.setText(self.flashFile)
-            self.fFlash.setDisabled(False)
-        else:
-            self.flashType=0
-            
-            
     def dlBinary(self):
         self.window.hide()
         food=[]
@@ -358,7 +311,6 @@ class FtcGuiApplication(TouchApplication):
         flasherror=False
         
         self.fLabel.hide()
-        self.fSelect.hide()
         self.fBinary.hide()
         self.fFlash.hide()
         self.avrdude.show()
@@ -367,9 +319,10 @@ class FtcGuiApplication(TouchApplication):
         self.processEvents()
         self.fWidget.repaint()
 
-        path = os.path.dirname(os.path.realpath(__file__))  
-        
-        if self.flashType==1: # binary flash
+        # get file to flash from combobox
+        file = self.fBinary.currentText()
+                
+        if not self.flashBootloader: # binary flash
             duino=self.device[self.dList.currentIndex()]
             # activate bootloader
             if self.act_duino!="None":
@@ -400,14 +353,15 @@ class FtcGuiApplication(TouchApplication):
                 t.setPosButton(QCoreApplication.translate("flash","Okay"))
                 t.exec_() 
                 return
-            else:            
+            else:
                 # tell avrdude widget which port to use
                 self.avrdude.setPort(devices[0])
-                self.avrdude.flash(os.path.join("binaries", self.flashFile)+".ino.hex")
+                self.avrdude.flash(os.path.join("binaries", file)+".ino.hex")
         
-        elif self.flashType==2: # bootloader flash
+        else: # bootloader flash
             # bootloader
-            self.avrdude.flash(os.path.join("bootloader", self.flashFile), True)
+            self.avrdude.flash(os.path.join("bootloader", file), True)
+            self.flashBootloader = False
             
         self.fWidget.repaint()
         self.fBack.setDisabled(False)
@@ -522,18 +476,27 @@ class FtcGuiApplication(TouchApplication):
                 
             
     def dFlash_clicked(self):
+        # get files to fill combobox
+        files = None
+        if self.flashBootloader: files = self.get_bootloader()
+        else:                    files = self.get_binaries()
+
         self.dWidget.hide()
         self.ioWidget.hide()
 
         self.avrdude.setPort(self.act_duino)
         self.avrdude.reset()
         
+        # enable flash button if at least one file is present
         self.fFlash.setStyleSheet("font-size: 20px; color: white; background-color: darkred;")
-        if self.flashType==2:
-            self.flashType=0
-            self.fBinary.setText("-- none --")
+        if len(files):
+            self.fFlash.setEnabled(True)
+            
+        self.fBinary.clear()
+        for f in files:
+            self.fBinary.addItem(f)
+
         self.fLabel.show()
-        self.fSelect.show()
         self.fBinary.show()
         self.fFlash.show()
         self.fWidget.show()
@@ -624,17 +587,10 @@ class FtcGuiApplication(TouchApplication):
         self.fLabel.setStyleSheet("font-size: 20px;")
         hbox.addWidget(self.fLabel)
         
-        self.fSelect=QPushButton(QCoreApplication.translate("flash","Select"))
-        self.fSelect.setStyleSheet("font-size: 20px;")
-        hbox.addWidget(self.fSelect)
-        
         flash.addLayout(hbox)
         
-        self.fBinary=QLineEdit()
-        self.fBinary.setReadOnly(True)
+        self.fBinary = QComboBox()
         self.fBinary.setStyleSheet("font-size: 20px; color: white;")
-        self.fBinary.setAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter)
-        self.fBinary.setText(QCoreApplication.translate("flash","-- none --"))
         flash.addWidget(self.fBinary)
         
         # add avrdude widget
@@ -655,7 +611,6 @@ class FtcGuiApplication(TouchApplication):
         
         self.fWidget.setLayout(flash)
         
-        self.fSelect.clicked.connect(self.fSelect_clicked)
         self.fFlash.clicked.connect(self.fFlash_clicked)
         self.fBack.clicked.connect(self.xBack_clicked)        
     
