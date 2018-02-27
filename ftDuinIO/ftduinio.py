@@ -52,8 +52,8 @@ class FtcGuiApplication(TouchApplication):
         self.menu=self.window.addMenu()
         self.menu.setStyleSheet("font-size: 24px;")
                 
-        self.m_cache = self.menu.addAction(QCoreApplication.translate("mmain","Cache"))
-        self.m_cache.triggered.connect(self.on_menu_cache) 
+        self.m_manage = self.menu.addAction(QCoreApplication.translate("mmain","Sketches"))
+        self.m_manage.triggered.connect(self.on_menu_manage) 
         
         #self.menu.addSeparator()
         
@@ -118,22 +118,123 @@ class FtcGuiApplication(TouchApplication):
         # remove trailing .ino.hex
         files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
         return files
-        
-    def on_menu_cache(self):
-        files = self.get_binaries()
-        s=False
-        if len(files)>0:
-            (s,r)=TouchAuxListRequester(QCoreApplication.translate("cache","Cache"),QCoreApplication.translate("cache","Select binary"),files,files[0],"Okay").exec_()
-            if s:
-                t=TouchMessageBox(QCoreApplication.translate("cache","Download"), self.window)
-                t.setText( QCoreApplication.translate("cache","File:") + "<br>"+ r + "<br><br>" +
-                           QCoreApplication.translate("cache","stored in cache."))
-                t.setPosButton(QCoreApplication.translate("cache","Delete!"))
-                t.setNegButton(QCoreApplication.translate("cache","Okay"))
-                (c,v)=t.exec_() 
-                if v==QCoreApplication.translate("cache","Delete!"):
-                    os.remove(os.path.join(path,"binaries",r+".ino.hex"))
+
+    class FileList(TouchDialog):
+        def __init__(self,parent=None):
+            TouchDialog.__init__(self,QCoreApplication.translate("manage","Sketches"),parent)  
                 
+            self.layout=QVBoxLayout()
+        
+            # the list
+            self.itemlist = QListWidget()
+            self.itemlist.setObjectName("smalllabel")
+            self.itemlist.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.itemlist.itemClicked.connect(self.on_itemchanged)
+
+            self.scan()
+            
+            self.layout.addWidget(self.itemlist)
+
+            self.download_btn = QPushButton(QCoreApplication.translate("manage","More..."))
+            self.download_btn.setStyleSheet("font-size: 20px;")
+            self.download_btn.clicked.connect(self.on_download)
+            self.layout.addWidget(self.download_btn)
+               
+            self.centralWidget.setLayout(self.layout)    
+
+        def scan(self):
+            self.itemlist.clear()
+            path = os.path.dirname(os.path.realpath(__file__))
+            # remove trailing .ino.hex
+            files = [f[:-8] for f in os.listdir(os.path.join(path,"binaries")) if os.path.isfile(os.path.join(path, "binaries", f))]
+            self.itemlist.addItems(files)
+            
+        def on_itemchanged(self):
+            r = self.itemlist.currentItem().text()
+            t = TouchMessageBox(QCoreApplication.translate("manage","Sketch"), self)
+            t.setText(r)
+            t.setPosButton(QCoreApplication.translate("manage","Delete!"))
+            t.setNegButton(QCoreApplication.translate("manage","Cancel"))
+            (c,v)=t.exec_() 
+            if v==QCoreApplication.translate("manage","Delete!"):
+                path = os.path.dirname(os.path.realpath(__file__))
+                os.remove(os.path.join(path,"binaries",r+".ino.hex"))
+                self.scan()
+
+        def on_download(self):
+            food=[]
+            select=[]
+            try:
+                file=urllib.request.urlopen(STORE+"00index.txt", timeout=1)
+                food=file.read().decode('utf-8').split("\n")
+                file.close()
+            except:
+                t=TouchMessageBox(QCoreApplication.translate("flash","Store"), self)
+                t.setCancelButton()
+                t.setText(QCoreApplication.translate("flash","Store not accessible."))
+                t.setPosButton(QCoreApplication.translate("flash","Okay"))
+                t.exec_()
+
+            if food !=[]:
+                menu=[]
+                for line in food:
+                    if line[0:6]=="name: ": menu.append(line[6:])
+
+                (s,r)=TouchAuxListRequester(QCoreApplication.translate("flash","Store"),QCoreApplication.translate("ecl","Select binary:"),menu,menu[0],"Okay",self).exec_()
+            
+                if s:
+                    a=False
+                    b=False
+                    for line in food:
+                        if b:
+                            version=line[9:]
+                            break
+                        if a and not b:
+                            filename=line[6:]
+                            b=True
+                        if line[6:]==r: a=True
+                
+                    v=""
+                    if b:
+                        t=TouchMessageBox(QCoreApplication.translate("flash","Download"), self)
+                        t.setText( QCoreApplication.translate("flash","File:") + "<br>"+ filename + "<br><br>" +
+                                   QCoreApplication.translate("flash","Version: v") + version)
+                        t.setPosButton(QCoreApplication.translate("flash","Download"))
+                        t.setNegButton(QCoreApplication.translate("flash","Cancel"))
+                        (c,v)=t.exec_()
+                
+                    if v==QCoreApplication.translate("flash","Download"):
+                        try:
+                            file=urllib.request.urlopen(STORE+filename, timeout=1)
+                            food=file.read()
+                            file.close()
+                            target = os.path.dirname(os.path.realpath(__file__))
+                            target = os.path.join(target, "binaries", filename)
+                            v=QCoreApplication.translate("flash","Replace")
+                            if os.path.exists(target):
+                                t=TouchMessageBox(QCoreApplication.translate("flash","Download"), self)
+                                t.setText( QCoreApplication.translate("flash","File:") + "<br>"+ filename + "<br><br>" +
+                                           QCoreApplication.translate("flash","already exists!"))
+                                t.setPosButton(QCoreApplication.translate("flash","Replace"))
+                                t.setNegButton(QCoreApplication.translate("flash","Cancel"))
+                                (c,v)=t.exec_() 
+                            
+                            if v==QCoreApplication.translate("flash","Replace"):
+                                with open(target, 'wb') as f:
+                                    f.write(food)
+                                f.close()
+                                
+                            self.scan()
+                        except: # download failed
+                            t=TouchMessageBox(QCoreApplication.translate("flash","Store"), self)
+                            t.setCancelButton()
+                            t.setText(QCoreApplication.translate("flash","Download failed."))
+                            t.setPosButton(QCoreApplication.translate("flash","Okay"))
+                            t.exec_()
+        
+    def on_menu_manage(self):
+        self.FileList(self.window).exec_()
+            
     def checkFtdComm(self):
         if self.act_duino!=None:
             n=self.act_duino.comm("ftduino_id_get")
@@ -218,97 +319,20 @@ class FtcGuiApplication(TouchApplication):
             if ((st!="") and res):
                 res=self.act_duino.comm("ftduino_id_set "+st)
         self.rescan_clicked()
+
+    def rescan_trigger(self):
+        self.timer = QTimer()        
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.rescan_clicked)
+        self.timer.start(1000)
         
     def rescan_clicked(self):
-        if TST:
-            self.dFlash_clicked()
-        else:
-            self.dComm.setStyleSheet("font-size: 20px; background-color: darkorange;")
-            self.dComm.setText(QCoreApplication.translate("comm","scanning"))
-            self.dComm.repaint()
-            self.processEvents()
-            self.ftdscan()
+        self.dComm.setStyleSheet("font-size: 20px; background-color: darkorange;")
+        self.dComm.setText(QCoreApplication.translate("comm","scanning"))
+        self.dComm.repaint()
+        self.processEvents()
+        self.ftdscan()
     
-    def dlBinary(self):
-        self.window.hide()
-        food=[]
-        select=[]
-        try:
-            file=urllib.request.urlopen(STORE+"00index.txt", timeout=1)
-            food=file.read().decode('utf-8').split("\n")
-            file.close()
-        except:
-            self.window.show()
-            t=TouchMessageBox(QCoreApplication.translate("flash","Store"), self.window)
-            t.setCancelButton()
-            t.setText(QCoreApplication.translate("flash","Store not accessible."))
-            t.setPosButton(QCoreApplication.translate("flash","Okay"))
-            t.exec_()
-            
-        if food !=[]:
-            menu=[]
-            for line in food:
-                if line[0:6]=="name: ": menu.append(line[6:])
-
-            (s,r)=TouchAuxListRequester(QCoreApplication.translate("flash","Store"),QCoreApplication.translate("ecl","Select binary:"),menu,menu[0],"Okay",self.window).exec_()
-            
-            if s:
-                a=False
-                b=False
-                for line in food:
-                    if b:
-                        version=line[9:]
-                        break
-                    if a and not b:
-                        filename=line[6:]
-                        b=True
-                    if line[6:]==r: a=True
-                
-                v=""
-                if b:
-                    t=TouchMessageBox(QCoreApplication.translate("flash","Download"), self.window)
-                    t.setText( QCoreApplication.translate("flash","File:") + "<br>"+ filename + "<br><br>" +
-                               QCoreApplication.translate("flash","Version: v") + version)
-                    t.setPosButton(QCoreApplication.translate("flash","Okay"))
-                    t.setNegButton(QCoreApplication.translate("flash","Cancel"))
-                    (c,v)=t.exec_()
-                    
-                    
-                
-                if v==QCoreApplication.translate("flash","Okay"):
-                    try:
-                        file=urllib.request.urlopen(STORE+filename, timeout=1)
-                        food=file.read()
-                        file.close()
-                        target = os.path.dirname(os.path.realpath(__file__))
-                        target = os.path.join(target, "binaries", filename)
-                        v=QCoreApplication.translate("flash","Replace")
-                        if os.path.exists(target):
-                            t=TouchMessageBox(QCoreApplication.translate("flash","Download"), self.window)
-                            t.setText( QCoreApplication.translate("flash","File:") + "<br>"+ filename + "<br><br>" +
-                                QCoreApplication.translate("flash","already exists in cache!"))
-                            t.setPosButton(QCoreApplication.translate("flash","Replace"))
-                            t.setNegButton(QCoreApplication.translate("flash","Cancel"))
-                            (c,v)=t.exec_() 
-                            
-                        if v==QCoreApplication.translate("flash","Replace"):
-                            with open(target, 'wb') as f:
-                                f.write(food)
-                            f.close()
-                            filename=filename[:-8]
-                        else:
-                            filename=""
-                    except: # download failed
-                        filename=""
-                        t=TouchMessageBox(QCoreApplication.translate("flash","Store"), self.window)
-                        t.setCancelButton()
-                        t.setText(QCoreApplication.translate("flash","Download failed."))
-                        t.setPosButton(QCoreApplication.translate("flash","Okay"))
-                        t.exec_()
-
-        self.window.show()
-        return [filename]
-        
     def fFlash_clicked(self):
         flasherror=False
         
@@ -365,7 +389,6 @@ class FtcGuiApplication(TouchApplication):
             self.avrdude.flash(os.path.join("bootloader", file)+".hex", True)
             self.flashBootloader = False
             
-        self.fWidget.repaint()
         self.fBack.setDisabled(False)
         self.fBack.setText(QCoreApplication.translate("flash","Back"))
         self.processEvents()            
@@ -575,6 +598,7 @@ class FtcGuiApplication(TouchApplication):
         # close dialog automatically if everything is fine
         if ok:
             self.xBack_clicked()
+            self.rescan_trigger()        
         else:
             self.fBack.show()
         
